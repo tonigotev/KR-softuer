@@ -1,7 +1,8 @@
 SECRET_KEY=
-DEBUG=True
+DEBUG=False
 ALLOWED_HOSTS=localhost,127.0.0.1
 TIME_ZONE=Europe/Sofia
+CORS_ALLOW_ALL_ORIGINS=False
 
 USE_POSTGRES=True
 DB_NAME=waypoint_db

@@ -2,6 +2,7 @@ from django.contrib.auth import authenticate, get_user_model
 from rest_framework import serializers
 
 from scheduling.models import DoctorProfile, PatientProfile, WeeklyScheduleSlot
+from scheduling.services import validate_day_slots_do_not_overlap
 
 User = get_user_model()
 
@@ -38,6 +39,7 @@ class DoctorRegisterSerializer(serializers.Serializer):
             raise serializers.ValidationError("A user with this email already exists.")
         if not attrs["weekly_schedule"]:
             raise serializers.ValidationError("weekly_schedule is required.")
+        validate_day_slots_do_not_overlap(attrs["weekly_schedule"])
         return attrs
 
     def create(self, validated_data):

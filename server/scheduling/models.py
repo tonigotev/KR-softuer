@@ -4,6 +4,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
+from django.db.models import F, Q
 
 
 class DoctorProfile(models.Model):
@@ -48,6 +49,16 @@ class WeeklyScheduleSlot(models.Model):
     class Meta:
         unique_together = ("doctor", "weekday", "start_time", "end_time")
         ordering = ("weekday", "start_time")
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(weekday__gte=0) & Q(weekday__lte=6),
+                name="weekly_slot_weekday_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(start_time__lt=F("end_time")),
+                name="weekly_slot_start_before_end",
+            ),
+        ]
 
     def clean(self):
         if self.weekday < 0 or self.weekday > 6:
@@ -92,6 +103,16 @@ class TemporaryScheduleSlot(models.Model):
     class Meta:
         unique_together = ("change", "weekday", "start_time", "end_time")
         ordering = ("weekday", "start_time")
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(weekday__gte=0) & Q(weekday__lte=6),
+                name="temporary_slot_weekday_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(start_time__lt=F("end_time")),
+                name="temporary_slot_start_before_end",
+            ),
+        ]
 
     def clean(self):
         if self.weekday < 0 or self.weekday > 6:
@@ -127,6 +148,16 @@ class PermanentScheduleSlot(models.Model):
     class Meta:
         unique_together = ("change", "weekday", "start_time", "end_time")
         ordering = ("weekday", "start_time")
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(weekday__gte=0) & Q(weekday__lte=6),
+                name="permanent_slot_weekday_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(start_time__lt=F("end_time")),
+                name="permanent_slot_start_before_end",
+            ),
+        ]
 
     def clean(self):
         if self.weekday < 0 or self.weekday > 6:
@@ -161,6 +192,12 @@ class Visit(models.Model):
     class Meta:
         ordering = ("starts_at",)
         indexes = [models.Index(fields=["doctor", "starts_at", "ends_at"])]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(starts_at__lt=F("ends_at")),
+                name="visit_start_before_end",
+            )
+        ]
 
     def clean(self):
         if self.starts_at >= self.ends_at:

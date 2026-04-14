@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -13,6 +14,7 @@ from .models import (
     Visit,
     WeeklyScheduleSlot,
 )
+from .services import validate_day_slots_do_not_overlap
 
 
 class ScheduleSlotSerializer(serializers.Serializer):
@@ -35,6 +37,10 @@ class WeeklyScheduleSlotModelSerializer(serializers.ModelSerializer):
 class WeeklyScheduleUpdateSerializer(serializers.Serializer):
     slots = ScheduleSlotSerializer(many=True)
 
+    def validate_slots(self, value):
+        validate_day_slots_do_not_overlap(value)
+        return value
+
 
 class TemporaryScheduleCreateSerializer(serializers.Serializer):
     start_datetime = serializers.DateTimeField()
@@ -46,6 +52,7 @@ class TemporaryScheduleCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("start_datetime must be earlier than end_datetime.")
         if not attrs["slots"]:
             raise serializers.ValidationError("slots is required.")
+        validate_day_slots_do_not_overlap(attrs["slots"])
         return attrs
 
 
@@ -61,6 +68,7 @@ class PermanentScheduleCreateSerializer(serializers.Serializer):
             )
         if not attrs["slots"]:
             raise serializers.ValidationError("slots is required.")
+        validate_day_slots_do_not_overlap(attrs["slots"])
         return attrs
 
 
@@ -94,58 +102,72 @@ class VisitSerializer(serializers.ModelSerializer):
         )
 
 
+class MyVisitsQuerySerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=[Visit.STATUS_SCHEDULED, Visit.STATUS_CANCELLED], required=False
+    )
+    from_date = serializers.DateField(required=False)
+
+
 def replace_weekly_schedule(doctor, slots):
-    WeeklyScheduleSlot.objects.filter(doctor=doctor).delete()
-    WeeklyScheduleSlot.objects.bulk_create(
-        [
-            WeeklyScheduleSlot(
+    with transaction.atomic():
+        WeeklyScheduleSlot.objects.filter(doctor=doctor).delete()
+        new_slots = []
+        for item in slots:
+            slot = WeeklyScheduleSlot(
                 doctor=doctor,
                 weekday=item["weekday"],
                 start_time=item["start_time"],
                 end_time=item["end_time"],
             )
-            for item in slots
-        ]
-    )
+            slot.full_clean()
+            new_slots.append(slot)
+        WeeklyScheduleSlot.objects.bulk_create(new_slots)
 
 
 def create_temporary_change(doctor, validated_data):
-    change = TemporaryScheduleChange.objects.create(
-        doctor=doctor,
-        start_datetime=validated_data["start_datetime"],
-        end_datetime=validated_data["end_datetime"],
-    )
-    TemporaryScheduleSlot.objects.bulk_create(
-        [
-            TemporaryScheduleSlot(
+    with transaction.atomic():
+        change = TemporaryScheduleChange(
+            doctor=doctor,
+            start_datetime=validated_data["start_datetime"],
+            end_datetime=validated_data["end_datetime"],
+        )
+        change.full_clean()
+        change.save()
+        slots = []
+        for item in validated_data["slots"]:
+            slot = TemporaryScheduleSlot(
                 change=change,
                 weekday=item["weekday"],
                 start_time=item["start_time"],
                 end_time=item["end_time"],
             )
-            for item in validated_data["slots"]
-        ]
-    )
-    return change
+            slot.full_clean()
+            slots.append(slot)
+        TemporaryScheduleSlot.objects.bulk_create(slots)
+        return change
 
 
 def create_permanent_change(doctor, validated_data):
-    change = PermanentScheduleChange.objects.create(
-        doctor=doctor,
-        effective_from=validated_data["effective_from"],
-    )
-    PermanentScheduleSlot.objects.bulk_create(
-        [
-            PermanentScheduleSlot(
+    with transaction.atomic():
+        change = PermanentScheduleChange(
+            doctor=doctor,
+            effective_from=validated_data["effective_from"],
+        )
+        change.full_clean()
+        change.save()
+        slots = []
+        for item in validated_data["slots"]:
+            slot = PermanentScheduleSlot(
                 change=change,
                 weekday=item["weekday"],
                 start_time=item["start_time"],
                 end_time=item["end_time"],
             )
-            for item in validated_data["slots"]
-        ]
-    )
-    return change
+            slot.full_clean()
+            slots.append(slot)
+        PermanentScheduleSlot.objects.bulk_create(slots)
+        return change
 
 
 class DoctorProfileSerializer(serializers.ModelSerializer):

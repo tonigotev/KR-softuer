@@ -5,8 +5,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import DoctorProfile, PatientProfile, Visit, WeeklyScheduleSlot
-from .permissions import IsDoctor
+from .permissions import IsDoctor, IsPatient
 from .serializers import (
+    MyVisitsQuerySerializer,
     PermanentScheduleCreateSerializer,
     TemporaryScheduleCreateSerializer,
     VisitCreateSerializer,
@@ -60,12 +61,9 @@ class PermanentScheduleView(APIView):
 
 
 class VisitCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsPatient]
 
     def post(self, request):
-        if request.user.role != "patient":
-            return Response({"detail": "Only patients can create visits."}, status=status.HTTP_403_FORBIDDEN)
-
         patient = get_object_or_404(PatientProfile, user=request.user)
         serializer = VisitCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -91,18 +89,30 @@ class MyVisitsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        query_data = {}
+        status_param = request.query_params.get("status")
+        if status_param is not None:
+            query_data["status"] = status_param
+        from_param = request.query_params.get("from")
+        if from_param is not None:
+            query_data["from_date"] = from_param
+
+        query_serializer = MyVisitsQuerySerializer(data=query_data)
+        query_serializer.is_valid(raise_exception=True)
+        filters = query_serializer.validated_data
+
         queryset = Visit.objects.none()
         if request.user.role == "patient":
             queryset = Visit.objects.filter(patient__user=request.user)
         elif request.user.role == "doctor":
             queryset = Visit.objects.filter(doctor__user=request.user)
 
-        status_filter = request.query_params.get("status")
-        if status_filter:
+        status_filter = filters.get("status")
+        if status_filter is not None:
             queryset = queryset.filter(status=status_filter)
 
-        from_date = request.query_params.get("from")
-        if from_date:
+        from_date = filters.get("from_date")
+        if from_date is not None:
             queryset = queryset.filter(starts_at__date__gte=from_date)
 
         queryset = queryset.order_by("starts_at")

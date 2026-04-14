@@ -61,6 +61,21 @@ class SchedulingApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(WeeklyScheduleSlot.objects.filter(doctor=self.doctor).count(), 1)
 
+    def test_doctor_cannot_set_overlapping_weekly_slots(self):
+        auth_client(self.client, self.doctor_user)
+        payload = {
+            "slots": [
+                {"weekday": 1, "start_time": "09:00:00", "end_time": "12:00:00"},
+                {"weekday": 1, "start_time": "11:30:00", "end_time": "15:00:00"},
+            ]
+        }
+        response = self.client.put(
+            "/v1/scheduling/doctors/me/weekly-schedule/",
+            payload,
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_patient_can_create_visit(self):
         auth_client(self.client, self.patient_user)
         next_monday = timezone.now() + timedelta(days=(7 - timezone.now().weekday()) % 7 + 7)
@@ -73,6 +88,16 @@ class SchedulingApiTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Visit.objects.count(), 1)
+
+    def test_doctor_cannot_create_visit(self):
+        auth_client(self.client, self.doctor_user)
+        start = timezone.now() + timedelta(days=8)
+        response = self.client.post(
+            "/v1/scheduling/visits/",
+            {"starts_at": start.isoformat(), "ends_at": (start + timedelta(minutes=30)).isoformat()},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_overlap_is_blocked(self):
         Visit.objects.create(
@@ -127,4 +152,9 @@ class SchedulingApiTests(APITestCase):
             },
             format="json",
         )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_my_visits_rejects_invalid_status_filter(self):
+        auth_client(self.client, self.patient_user)
+        response = self.client.get("/v1/scheduling/visits/me/?status=invalid")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

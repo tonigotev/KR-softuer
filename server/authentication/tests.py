@@ -32,3 +32,18 @@ class RegistrationTests(APITestCase):
         }
         response = self.client.post("/v1/auth/register/patient/", payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_register_doctor_rejects_overlapping_schedule_slots(self):
+        payload = {
+            "email": "doctor2@example.com",
+            "full_name": "Doctor Two",
+            "password": "StrongPass123",
+            "password2": "StrongPass123",
+            "physical_address": "Sofia 2",
+            "weekly_schedule": [
+                {"weekday": 0, "start_time": "08:30:00", "end_time": "12:00:00"},
+                {"weekday": 0, "start_time": "11:30:00", "end_time": "14:00:00"},
+            ],
+        }
+        response = self.client.post("/v1/auth/register/doctor/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
